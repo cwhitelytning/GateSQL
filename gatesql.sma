@@ -12,7 +12,7 @@
 
 #define PLUGIN "Gates SQL"
 #define AUTHOR "Clay Whitelytning"
-#define VERSION "1.0.2"
+#define VERSION "1.0.4"
 
 /**
  * Allows you to use the connection settings from sql.cfg.
@@ -22,10 +22,10 @@
  * Note that logins_sql_table must be specified 
  * for example in sql.cfg in order to use a different table name.
  */
-#define USE_SQL_CFG
+#define USING_SQL
 
 /**
- * If the USE_SQL_CFG define is used, then you do not need to use your own configuration.
+ * If the USING_SQL define is used, then you do not need to use your own configuration.
  * However, if sql.cfg is not loaded by default, you can use it.
  * 
  * If the SQL_CFG definition is not used, uncomment to load your own configuration file.
@@ -33,11 +33,12 @@
 //#define USE_FORCE_LOAD_CONFIG
 
 /**
- * As a rule, it is difficult to hide the address if a VPN is not used.
- * If you do not allow entry from one IP of several players, leave it.
- * Comment if you want to use STEAM ID to identify the player.
+ * Player identification by:
+ * 1 - Only IP.
+ * 2 - Only Steam ID.
+ * 3 - Dual (IP & Steam ID).
  */
-#define USE_IP_FOR_IDENTITY
+#define USE_IDENTITY 1
 
 /**
  * Reads and changes the player's nickname.
@@ -109,7 +110,7 @@ public plugin_init()
   message_say_text = get_user_msgid("SayText");
   #endif
   
-  #if defined USE_SQL_CFG
+  #if defined USING_SQL
   cvar_sql_host	=	register_cvar("amx_sql_host", "127.0.0.1", FCVAR_PROTECTED);
   cvar_sql_db	=	register_cvar("amx_sql_db", "amxx", FCVAR_PROTECTED);
   cvar_sql_user	=	register_cvar("amx_sql_user", "root", FCVAR_PROTECTED);
@@ -122,6 +123,17 @@ public plugin_init()
   #endif
 
   cvar_sql_table = register_cvar("gate_sql_table", "gates", FCVAR_PROTECTED);
+
+  #if defined USE_FORCE_LOAD_CONFIG
+    new file_path[128];
+    get_localinfo("amxx_configsdir", file_path, charsmax(file_path));    
+    #if defined USING_SQL
+      formatex(file_path, charsmax(file_path), "%s/%s", file_path, "sql.cfg");
+    #else
+      formatex(file_path, charsmax(file_path), "%s/%s", file_path, "gatesql.cfg");
+    #endif
+    server_cmd("exec %s", file_path);
+  #endif
 }
 
 #if defined USE_HOOK_SET_CLIENT_USER_INFO_NAME
@@ -140,22 +152,7 @@ public CBasePlayer_SetClientUserInfoName(id, szInfoBuffer[], szNewName[])
 }
 #endif
 
-public plugin_cfg()
-{
-  #if defined USE_FORCE_LOAD_CONFIG
-    new file_path[128];
-    get_localinfo("amxx_configsdir", file_path, charsmax(file_path));    
-    #if defined USE_SQL_CFG
-      formatex(file_path, charsmax(file_path), "%s/%s", file_path, "sql.cfg");
-    #else
-      formatex(file_path, charsmax(file_path), "%s/%s", file_path, "gatesql.cfg");
-    #endif
-    server_cmd("exec %s", file_path);
-    server_exec();
-  #endif
-
-  @connect_db();
-}
+public plugin_cfg() @connect_db();
 
 #if defined USE_CHANGE_NAME_ON_PUT_IN_SERVER
 public client_putinserver(id) @check_player_data(id);
@@ -179,13 +176,24 @@ public client_putinserver(id) {
     new sql_table[SQL_DATA_SIZE], index[2];
     get_pcvar_string(cvar_sql_table, sql_table, charsmax(sql_table));
 
-    #if defined USE_IP_FOR_IDENTITY
+    #if USE_IDENTITY == 1
     new ip[IP_SIZE];
-    get_user_ip(id, ip, charsmax(ip));
+    get_user_ip(id, ip, charsmax(ip), true /* without port */);
+
     format(data, charsmax(data), "SELECT `name` FROM %s WHERE ip = '%s'", sql_table, ip);
-    #else
+    #elseif USE_IDENTITY == 2
     new steamid[STEAMID_SIZE];
+    get_user_authid(id, steamid, charsmax(steamid));
+
     format(data, charsmax(data), "SELECT `name` FROM %s WHERE steamid = '%s'", sql_table, steamid);
+    #elseif USE_IDENTITY == 3
+    new ip[IP_SIZE];
+    get_user_ip(id, ip, charsmax(ip), true /* without port */);
+
+    new steamid[STEAMID_SIZE];
+    get_user_authid(id, steamid, charsmax(steamid));
+
+    format(data, charsmax(data), "SELECT `name` FROM %s WHERE steamid = '%s' AND ip = '%s'", sql_table, steamid, ip);
     #endif
 
     index[0] = id;
