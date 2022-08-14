@@ -12,24 +12,23 @@
 
 #define PLUGIN "Gates SQL"
 #define AUTHOR "Clay Whitelytning"
-#define VERSION "1.0.0"
+#define VERSION "1.0.2"
 
 /**
- * Allows you to use the connection settings from sql.ini.
+ * Allows you to use the connection settings from sql.cfg.
  * This is necessary first of all so as not to produce settings for the sake of connection that are already specified somewhere.
  * If not defined, custom cvars and a configuration file will be used.
  * 
  * Note that logins_sql_table must be specified 
- * for example in amxx.cfg in order to use a different table name.
+ * for example in sql.cfg in order to use a different table name.
  */
 #define USE_SQL_CFG
 
 /**
  * If the USE_SQL_CFG define is used, then you do not need to use your own configuration.
- * However, if sql.ini is not loaded by default, you can use it.
+ * However, if sql.cfg is not loaded by default, you can use it.
  * 
- * If the SQL_CFG definition is not used, 
- * uncomment to load your own configuration file.
+ * If the SQL_CFG definition is not used, uncomment to load your own configuration file.
  */
 //#define USE_FORCE_LOAD_CONFIG
 
@@ -41,29 +40,10 @@
 #define USE_IP_FOR_IDENTITY
 
 /**
- * Defines the processing of the player when entering the server.
- */
-#define USE_CLIENT_PUT_IN_SERVER
-
-/**
- * If determined, the player will be kicked with the reason specified in the logins_kick_reason cvar.
- * Check is case-sensitive and any mismatch of letters will lead to the removal of the player from the server.
- * If commented out the nickname will be changed will be forced. 
- * Player will be kicked only when entering the server.
- */
-//#define USE_KICK_PLAYER
-
-/**
- * Reads and changes the player's nickname 
- * (if it does not match or the player has not logged in for the first time).
+ * Reads and changes the player's nickname.
+ * If only saving the name will be commented out.
  */
 #define USE_CHANGE_NAME_ON_PUT_IN_SERVER
-
-/**
- * Regardless of whether a player has been recorded or not,
- * this definition will record his name, thereby updating or creating a new record.
- */
-#define USE_WRITE_NAME_ON_PUT_IN_SERVER
 
 /**
  * Allows you to catch changes in the player's name.
@@ -99,10 +79,6 @@
  * --------------------------------------------------------------------------------------
  */
 #define is_player(%1) !is_user_bot(%1) && !is_user_hltv(%1)
-
-#if defined USE_KICK_PLAYER
-new cvar_kick_reason;
-#endif
 
 #if defined USE_BLOCK_CHANGE_NAME_IN_GAME
 new players[MAX_PLAYERS + 1];
@@ -145,10 +121,6 @@ public plugin_init()
   cvar_sql_pass	=	register_cvar("gate_sql_pass", "", FCVAR_PROTECTED);
   #endif
 
-  #if defined USE_KICK_PLAYER
-  cvar_kick_reason = register_cvar("gate_kick_reason", "Player has already been registered under this nickname");
-  #endif
-
   cvar_sql_table = register_cvar("gate_sql_table", "gates", FCVAR_PROTECTED);
 }
 
@@ -185,28 +157,22 @@ public plugin_cfg()
   @connect_db();
 }
 
-#if defined USE_CLIENT_PUT_IN_SERVER
-public client_putinserver(id) 
-{
-  #if defined USE_CHANGE_NAME_ON_PUT_IN_SERVER
-  @read_player_data(id);
-  #endif
-
-  #if defined USE_WRITE_NAME_ON_PUT_IN_SERVER
+#if defined USE_CHANGE_NAME_ON_PUT_IN_SERVER
+public client_putinserver(id) @check_player_data(id);
+#else
+public client_putinserver(id) {
   if (is_player(id)) {
-    new name[NAME_SIZE];
-    get_user_name(id, name, charsmax(name));
-    @write_player_data(id, name);
+    new curname[NAME_SIZE];
+    get_user_name(id, curname, charsmax(curname));  
+    @write_player_data(id, curname);
   }
-  #endif
 }
 #endif
 
 /**
  * Reads the player's nickname and changes it if it is different.
  */
-#if defined USE_CHANGE_NAME_ON_PUT_IN_SERVER
-@read_player_data(const id)
+@check_player_data(const id)
 {
   if (is_player(id)) {
     static data[DATA_SIZE];
@@ -224,10 +190,9 @@ public client_putinserver(id)
 
     index[0] = id;
     SQL_ThreadQuery(sql_tuple, "@query_handler", .query = "SET NAMES utf8");
-    SQL_ThreadQuery(sql_tuple, "@query_read_handler", data, index, charsmax(index));
+    SQL_ThreadQuery(sql_tuple, "@query_handler_check_player", data, index, charsmax(index));
   }
 }
-#endif
 
 /**
  * Writes the player's nickname to the table.
@@ -281,10 +246,10 @@ public client_putinserver(id)
   get_pcvar_string(cvar_sql_table, sql_table, charsmax(sql_table));
 
   format(data, charsmax(data), "CREATE TABLE IF NOT EXISTS `%s` \
-  (`ip` varchar(%d), \
-   `steamid` varchar(%d), \
-   `name` varchar(%d), \
-   PRIMARY KEY(`ip`))", sql_table, IP_SIZE, STEAMID_SIZE, NAME_SIZE);
+  (`id` INT NOT NULL AUTO_INCREMENT PRIMARY KEY, \
+   `ip` varchar(%d) NOT NULL, \
+   `steamid` varchar(%d) NOT NULL, \
+   `name` varchar(%d) NOT NULL)", sql_table, IP_SIZE, STEAMID_SIZE, NAME_SIZE);  
 
   SQL_ThreadQuery(sql_tuple, "@query_handler", .query = "SET NAMES utf8");
   SQL_ThreadQuery(sql_tuple, "@query_handler", .query = data);
@@ -306,28 +271,27 @@ public client_putinserver(id)
 /**
  * Handler for reading and changing the nickname.
  */
-@query_read_handler(fail_state, Handle: query_handle, error_message[], error_code, data[], datasize, Float: queue)
+@query_handler_check_player(fail_state, Handle: query_handle, error_message[], error_code, data[], datasize, Float: queue)
 {
   if(datasize && fail_state == TQUERY_SUCCESS) {
     new id = data[0]; // player id
 
-    if (is_user_connected(id) && SQL_NumResults(query_handle) > 0) {
-      new oldname[NAME_SIZE], curname[NAME_SIZE];
-      SQL_ReadResult(query_handle, 0, oldname, charsmax(oldname));
-
+    if (is_player(id)) {
+      new curname[NAME_SIZE];
       get_user_name(id, curname, charsmax(curname));
-      if (!equal(oldname, curname)) {
-        #if defined USE_BLOCK_CHANGE_NAME_IN_GAME
-        players[id] = true;
-        #endif
 
-        #if defined USE_KICK_PLAYER
-        new reason[256];
-        get_pcvar_string(cvar_kick_reason, reason, charsmax(reason));
-        server_cmd("kick #%d %s", get_user_userid(id), reason);
-        #else
-        set_user_info(id, "name", oldname);
-        #endif
+      if (SQL_NumResults(query_handle) > 0) {
+        new oldname[NAME_SIZE];
+        SQL_ReadResult(query_handle, 0, oldname, charsmax(oldname));
+
+        if (!equal(oldname, curname)) {
+          #if defined USE_BLOCK_CHANGE_NAME_IN_GAME
+          players[id] = true;
+          #endif
+          set_user_info(id, "name", oldname);
+        }        
+      } else {
+        @write_player_data(id, curname);
       }
     }
   } else {
