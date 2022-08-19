@@ -12,7 +12,7 @@
 
 #define PLUGIN "Gates SQL"
 #define AUTHOR "Clay Whitelytning"
-#define VERSION "1.0.4"
+#define VERSION "1.0.5"
 
 /**
  * Allows you to use the connection settings from sql.cfg.
@@ -96,7 +96,9 @@ new cvar_sql_host,
 	cvar_sql_table,
 
   Handle:sql_tuple,
-  Handle:sql_connection;
+  Handle:sql_connection,
+  
+  indexes[MAX_PLAYERS + 1];
 
 public plugin_init()
 {
@@ -153,9 +155,10 @@ public CBasePlayer_SetClientUserInfoName(id, szInfoBuffer[], szNewName[])
 #endif
 
 public plugin_cfg() @connect_db();
+public client_disconnected(id) { indexes[id] = 0; }
 
 #if defined USE_CHANGE_NAME_ON_PUT_IN_SERVER
-public client_putinserver(id) @check_player_data(id);
+public client_putinserver(id) @read_player_data(id);
 #else
 public client_putinserver(id) {
   if (is_player(id)) {
@@ -169,10 +172,10 @@ public client_putinserver(id) {
 /**
  * Reads the player's nickname and changes it if it is different.
  */
-@check_player_data(const id)
+@read_player_data(const id)
 {
   if (is_player(id)) {
-    static data[DATA_SIZE];
+    static sql_query[DATA_SIZE];
     new sql_table[SQL_DATA_SIZE], index[2];
     get_pcvar_string(cvar_sql_table, sql_table, charsmax(sql_table));
 
@@ -180,12 +183,12 @@ public client_putinserver(id) {
     new ip[IP_SIZE];
     get_user_ip(id, ip, charsmax(ip), true /* without port */);
 
-    format(data, charsmax(data), "SELECT `name` FROM %s WHERE ip = '%s'", sql_table, ip);
+    format(sql_query, charsmax(sql_query), "SELECT `id`, `name` FROM %s WHERE ip = '%s'", sql_table, ip);
     #elseif USE_IDENTITY == 2
     new steamid[STEAMID_SIZE];
     get_user_authid(id, steamid, charsmax(steamid));
 
-    format(data, charsmax(data), "SELECT `name` FROM %s WHERE steamid = '%s'", sql_table, steamid);
+    format(sql_query, charsmax(sql_query), "SELECT `id`, `name` FROM %s WHERE steamid = '%s'", sql_table, steamid);
     #elseif USE_IDENTITY == 3
     new ip[IP_SIZE];
     get_user_ip(id, ip, charsmax(ip), true /* without port */);
@@ -193,12 +196,11 @@ public client_putinserver(id) {
     new steamid[STEAMID_SIZE];
     get_user_authid(id, steamid, charsmax(steamid));
 
-    format(data, charsmax(data), "SELECT `name` FROM %s WHERE steamid = '%s' AND ip = '%s'", sql_table, steamid, ip);
+    format(sql_query, charsmax(sql_query), "SELECT `id`, `name` FROM %s WHERE steamid = '%s' AND ip = '%s'", sql_table, steamid, ip);
     #endif
 
     index[0] = id;
-    SQL_ThreadQuery(sql_tuple, "@query_handler", .query = "SET NAMES utf8");
-    SQL_ThreadQuery(sql_tuple, "@query_handler_check_player", data, index, charsmax(index));
+    SQL_ThreadQuery(sql_tuple, "@query_read_handler", sql_query, index, charsmax(index));
   }
 }
 
@@ -207,18 +209,34 @@ public client_putinserver(id) {
  */
 @write_player_data(const id, const name[])
 {
-  if (is_player(id)) {
-    static data[DATA_SIZE];
+  if (indexes[id]) {
+    static sql_query[DATA_SIZE];
 
     new steamid[STEAMID_SIZE], ip[IP_SIZE], sql_table[32];
     get_user_authid(id, steamid, charsmax(steamid));
-    get_user_ip(id, ip, charsmax(ip));
+    get_user_ip(id, ip, charsmax(ip), true /* without port */);
 
     get_pcvar_string(cvar_sql_table, sql_table, charsmax(sql_table));
-    format(data, charsmax(data), "REPLACE INTO %s (ip, steamid, name) VALUES ('%s', '%s', '%s')", sql_table, ip, steamid, name);
+    format(sql_query, charsmax(sql_query), "REPLACE INTO %s (id, ip, steamid, name) VALUES (%i, '%s', '%s', '%s')", indexes[id], sql_table, ip, steamid, name);
 
-    SQL_ThreadQuery(sql_tuple, "@query_handler", .query = "SET NAMES utf8");
-    SQL_ThreadQuery(sql_tuple, "@query_handler", .query = data);
+    SQL_ThreadQuery(sql_tuple, "@query_handler", .query = sql_query);
+  }
+}
+
+/**
+ * Creates a new record.
+ */
+@insert_player_data(const id, const name[])
+{
+  if (is_player(id)) {
+    new steamid[STEAMID_SIZE], ip[IP_SIZE], sql_table[32], sql_query[DATA_SIZE];
+    get_user_authid(id, steamid, charsmax(steamid));
+    get_user_ip(id, ip, charsmax(ip), true /* without port */);
+
+    get_pcvar_string(cvar_sql_table, sql_table, charsmax(sql_table));
+    format(sql_query, charsmax(sql_query), "INSERT INTO %s (ip, steamid, name) VALUES ('%s', '%s', '%s')", sql_table, ip, steamid, name);
+
+    SQL_ThreadQuery(sql_tuple, "@query_handler", .query = sql_query);
   }
 }
 
@@ -235,13 +253,17 @@ public client_putinserver(id) {
 
   new error, data[DATA_SIZE];
   sql_tuple = SQL_MakeDbTuple(sql_host, sql_user, sql_pass, sql_db);
+  SQL_SetCharset(sql_tuple, "utf8");
+
   sql_connection = SQL_Connect(sql_tuple, error, data, charsmax(data));
 
   if(sql_connection == Empty_Handle) {
     set_fail_state("[%s] Error connecting to database (mysql)^nError: %s", PLUGIN, data);
   }
 
+  SQL_SetCharset(sql_connection, "utf8");
   SQL_FreeHandle(sql_connection);
+
   @check_table();
 }
 
@@ -250,17 +272,16 @@ public client_putinserver(id) {
  */
 @check_table()
 {
-  new sql_table[SQL_DATA_SIZE], data[DATA_SIZE];
+  new sql_table[SQL_DATA_SIZE], sql_query[DATA_SIZE];
   get_pcvar_string(cvar_sql_table, sql_table, charsmax(sql_table));
 
-  format(data, charsmax(data), "CREATE TABLE IF NOT EXISTS `%s` \
+  format(sql_query, charsmax(sql_query), "CREATE TABLE IF NOT EXISTS `%s` \
   (`id` INT NOT NULL AUTO_INCREMENT PRIMARY KEY, \
    `ip` varchar(%d) NOT NULL, \
    `steamid` varchar(%d) NOT NULL, \
-   `name` varchar(%d) NOT NULL)", sql_table, IP_SIZE, STEAMID_SIZE, NAME_SIZE);  
+   `name` varchar(%d) NOT NULL) DEFAULT CHARSET=utf8", sql_table, IP_SIZE, STEAMID_SIZE, NAME_SIZE);  
 
-  SQL_ThreadQuery(sql_tuple, "@query_handler", .query = "SET NAMES utf8");
-  SQL_ThreadQuery(sql_tuple, "@query_handler", .query = data);
+  SQL_ThreadQuery(sql_tuple, "@query_handler", .query = sql_query);
 }
 
 /**
@@ -279,7 +300,7 @@ public client_putinserver(id) {
 /**
  * Handler for reading and changing the nickname.
  */
-@query_handler_check_player(fail_state, Handle: query_handle, error_message[], error_code, data[], datasize, Float: queue)
+@query_read_handler(fail_state, Handle: query_handle, error_message[], error_code, data[], datasize, Float: queue)
 {
   if(datasize && fail_state == TQUERY_SUCCESS) {
     new id = data[0]; // player id
@@ -287,10 +308,12 @@ public client_putinserver(id) {
     if (is_player(id)) {
       new curname[NAME_SIZE];
       get_user_name(id, curname, charsmax(curname));
+      
+      if (SQL_NumResults(query_handle)) {
+        indexes[id] = SQL_ReadResult(query_handle, 0); //!< get index id
 
-      if (SQL_NumResults(query_handle) > 0) {
         new oldname[NAME_SIZE];
-        SQL_ReadResult(query_handle, 0, oldname, charsmax(oldname));
+        SQL_ReadResult(query_handle, 1, oldname, charsmax(oldname));
 
         if (!equal(oldname, curname)) {
           #if defined USE_BLOCK_CHANGE_NAME_IN_GAME
@@ -299,7 +322,7 @@ public client_putinserver(id) {
           set_user_info(id, "name", oldname);
         }        
       } else {
-        @write_player_data(id, curname);
+        @insert_player_data(id, curname);
       }
     }
   } else {
