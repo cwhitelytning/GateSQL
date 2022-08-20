@@ -12,7 +12,7 @@
 
 #define PLUGIN "Gates SQL"
 #define AUTHOR "Clay Whitelytning"
-#define VERSION "1.0.5"
+#define VERSION "1.0.6"
 
 /**
  * Allows you to use the connection settings from sql.cfg.
@@ -37,6 +37,7 @@
  * 1 - Only IP.
  * 2 - Only Steam ID.
  * 3 - Dual (IP & Steam ID).
+ * 4 - Variant (IP or Steam ID).
  */
 #define USE_IDENTITY 1
 
@@ -69,7 +70,7 @@
  * if you don't know what they will lead to after the change.
  */
 #define SQL_DATA_SIZE 33
-#define DATA_SIZE 256
+#define DATA_SIZE 512
 #define STEAMID_SIZE 35
 #define NAME_SIZE 33
 #define IP_SIZE 23
@@ -82,7 +83,7 @@
 #define is_player(%1) !is_user_bot(%1) && !is_user_hltv(%1)
 
 #if defined USE_BLOCK_CHANGE_NAME_IN_GAME
-new players[MAX_PLAYERS + 1];
+new unlocks[MAX_PLAYERS + 1]; //!< Forces to rename the nickname of a particular player if the name change lock is used
 #endif
 
 #if defined USE_BLOCK_MESSAGE_ON_CHANGE_NAME
@@ -146,28 +147,17 @@ public CBasePlayer_SetClientUserInfoName(id, szInfoBuffer[], szNewName[])
   #endif
 
   #if defined USE_BLOCK_CHANGE_NAME_IN_GAME
-  SetHookChainReturn(ATYPE_BOOL, players[id]);
-  players[id] = false;
+  SetHookChainReturn(ATYPE_BOOL, unlocks[id]);
+  unlocks[id] = false;
   #else
-  @write_player_data(id, szNewName);
+  @update_player_data(id, szNewName);
   #endif
 }
 #endif
 
 public plugin_cfg() @connect_db();
 public client_disconnected(id) { indexes[id] = 0; }
-
-#if defined USE_CHANGE_NAME_ON_PUT_IN_SERVER
 public client_putinserver(id) @read_player_data(id);
-#else
-public client_putinserver(id) {
-  if (is_player(id)) {
-    new curname[NAME_SIZE];
-    get_user_name(id, curname, charsmax(curname));  
-    @write_player_data(id, curname);
-  }
-}
-#endif
 
 /**
  * Reads the player's nickname and changes it if it is different.
@@ -196,7 +186,15 @@ public client_putinserver(id) {
     new steamid[STEAMID_SIZE];
     get_user_authid(id, steamid, charsmax(steamid));
 
-    format(sql_query, charsmax(sql_query), "SELECT `id`, `name` FROM %s WHERE steamid = '%s' AND ip = '%s'", sql_table, steamid, ip);
+    format(sql_query, charsmax(sql_query), "SELECT `id`, `name` FROM %s WHERE ip = '%s' AND steamid = '%s'", sql_table, steamid, ip);
+    #elseif USE_IDENTITY == 4
+    new ip[IP_SIZE];
+    get_user_ip(id, ip, charsmax(ip), true /* without port */);
+
+    new steamid[STEAMID_SIZE];
+    get_user_authid(id, steamid, charsmax(steamid));
+
+    format(sql_query, charsmax(sql_query), "SELECT `id`, `name` FROM %s WHERE ip = '%s' OR steamid = '%s'", sql_table, steamid, ip);
     #endif
 
     index[0] = id;
@@ -207,7 +205,7 @@ public client_putinserver(id) {
 /**
  * Writes the player's nickname to the table.
  */
-@write_player_data(const id, const name[])
+@update_player_data(const id, const name[])
 {
   if (indexes[id]) {
     static sql_query[DATA_SIZE];
@@ -217,8 +215,11 @@ public client_putinserver(id) {
     get_user_ip(id, ip, charsmax(ip), true /* without port */);
 
     get_pcvar_string(cvar_sql_table, sql_table, charsmax(sql_table));
-    format(sql_query, charsmax(sql_query), "REPLACE INTO %s (id, ip, steamid, name) VALUES (%i, '%s', '%s', '%s')", indexes[id], sql_table, ip, steamid, name);
-
+    format(sql_query, charsmax(sql_query), "UPDATE `%s` SET \
+    `ip` = '%s',\
+    `steamid` = '%s',\
+    `name` = '%s'\
+    WHERE `id` = %d", sql_table, ip, steamid, name, indexes[id]);
     SQL_ThreadQuery(sql_tuple, "@query_handler", .query = sql_query);
   }
 }
@@ -279,7 +280,8 @@ public client_putinserver(id) {
   (`id` INT NOT NULL AUTO_INCREMENT PRIMARY KEY, \
    `ip` varchar(%d) NOT NULL, \
    `steamid` varchar(%d) NOT NULL, \
-   `name` varchar(%d) NOT NULL) DEFAULT CHARSET=utf8", sql_table, IP_SIZE, STEAMID_SIZE, NAME_SIZE);  
+   `name` varchar(%d) NOT NULL, \
+   `created` timestamp NOT NULL DEFAULT CURRENT_TIMESTAMP) DEFAULT CHARSET=utf8", sql_table, IP_SIZE, STEAMID_SIZE, NAME_SIZE);  
 
   SQL_ThreadQuery(sql_tuple, "@query_handler", .query = sql_query);
 }
@@ -312,15 +314,19 @@ public client_putinserver(id) {
       if (SQL_NumResults(query_handle)) {
         indexes[id] = SQL_ReadResult(query_handle, 0); //!< get index id
 
+        #if defined USE_CHANGE_NAME_ON_PUT_IN_SERVER
         new oldname[NAME_SIZE];
         SQL_ReadResult(query_handle, 1, oldname, charsmax(oldname));
-
+        
         if (!equal(oldname, curname)) {
           #if defined USE_BLOCK_CHANGE_NAME_IN_GAME
-          players[id] = true;
+          unlocks[id] = true;
           #endif
           set_user_info(id, "name", oldname);
-        }        
+        }
+        #else
+        @update_player_data(id, curname);
+        #endif
       } else {
         @insert_player_data(id, curname);
       }
