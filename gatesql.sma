@@ -12,7 +12,7 @@
 
 #define PLUGIN "Gates SQL"
 #define AUTHOR "Clay Whitelytning"
-#define VERSION "1.0.6"
+#define VERSION "1.0.7"
 
 /**
  * Allows you to use the connection settings from sql.cfg.
@@ -205,14 +205,13 @@ public client_putinserver(id) @read_player_data(id);
 /**
  * Writes the player's nickname to the table.
  */
-@update_player_data(const id, const name[])
+@update_player_data(const id, name[])
 {
   if (indexes[id]) {
-    static sql_query[DATA_SIZE];
-
-    new steamid[STEAMID_SIZE], ip[IP_SIZE], sql_table[32];
+    new sql_query[DATA_SIZE], steamid[STEAMID_SIZE], ip[IP_SIZE], sql_table[32];
     get_user_authid(id, steamid, charsmax(steamid));
     get_user_ip(id, ip, charsmax(ip), true /* without port */);
+    mysql_escape_string(name, NAME_SIZE - 1);
 
     get_pcvar_string(cvar_sql_table, sql_table, charsmax(sql_table));
     format(sql_query, charsmax(sql_query), "UPDATE `%s` SET \
@@ -227,12 +226,13 @@ public client_putinserver(id) @read_player_data(id);
 /**
  * Creates a new record.
  */
-@insert_player_data(const id, const name[])
+@insert_player_data(const id, name[])
 {
   if (is_player(id)) {
     new steamid[STEAMID_SIZE], ip[IP_SIZE], sql_table[32], sql_query[DATA_SIZE];
     get_user_authid(id, steamid, charsmax(steamid));
     get_user_ip(id, ip, charsmax(ip), true /* without port */);
+    mysql_escape_string(name, NAME_SIZE - 1);
 
     get_pcvar_string(cvar_sql_table, sql_table, charsmax(sql_table));
     format(sql_query, charsmax(sql_query), "INSERT INTO %s (ip, steamid, name) VALUES ('%s', '%s', '%s')", sql_table, ip, steamid, name);
@@ -345,4 +345,16 @@ public client_putinserver(id) @read_player_data(id);
 public plugin_end()
 {
   if (sql_tuple) SQL_FreeHandle(sql_tuple);
+}
+
+/*********    mysql escape functions     ************/
+mysql_escape_string(dest[],len)
+{
+	replace_all(dest,len,"\\","\\\\");
+	replace_all(dest,len,"\0","\\0");
+	replace_all(dest,len,"\n","\\n");
+	replace_all(dest,len,"\r","\\r");
+	replace_all(dest,len,"\x1a","\Z");
+	replace_all(dest,len,"'","''");
+	replace_all(dest,len,"^"","^"^"");
 }
