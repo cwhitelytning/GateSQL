@@ -12,7 +12,7 @@
 
 #define PLUGIN "Gates SQL"
 #define AUTHOR "Clay Whitelytning"
-#define VERSION "1.0.7"
+#define VERSION "1.0.8"
 
 /**
  * Allows you to use the connection settings from sql.cfg.
@@ -33,13 +33,20 @@
 //#define USE_FORCE_LOAD_CONFIG
 
 /**
- * Player identification by:
- * 1 - Only IP.
- * 2 - Only Steam ID.
- * 3 - Dual (IP & Steam ID).
- * 4 - Variant (IP or Steam ID).
+ * Identifies the player by IP address.
  */
-#define USE_IDENTITY 1
+#define USE_IP_IDENTITY
+
+/**
+ * Identifies the player by Steam ID.
+ */
+//#define USE_STEAMID_IDENTITY
+
+/**
+ * Performs dual verification by address and identifier.
+ * (USE_IP_IDENTITY and USE_STEAMID_IDENTITY must be defined).
+ */
+//#define USE_DUAL_IDENTITY
 
 /**
  * Reads and changes the player's nickname.
@@ -165,36 +172,27 @@ public client_putinserver(id) @read_player_data(id);
 @read_player_data(const id)
 {
   if (is_player(id)) {
-    static sql_query[DATA_SIZE];
-    new sql_table[SQL_DATA_SIZE], index[2];
+    new sql_query[DATA_SIZE], sql_table[SQL_DATA_SIZE], index[2];
     get_pcvar_string(cvar_sql_table, sql_table, charsmax(sql_table));
 
-    #if USE_IDENTITY == 1
+    #if defined USE_IP_IDENTITY
     new ip[IP_SIZE];
-    get_user_ip(id, ip, charsmax(ip), true /* without port */);
+    get_user_ip(id, ip, charsmax(ip), true /* without port */);    
+    #endif
 
-    format(sql_query, charsmax(sql_query), "SELECT `id`, `name` FROM %s WHERE ip = '%s'", sql_table, ip);
-    #elseif USE_IDENTITY == 2
+    #if defined USE_STEAMID_IDENTITY
     new steamid[STEAMID_SIZE];
     get_user_authid(id, steamid, charsmax(steamid));
+    #endif
 
-    format(sql_query, charsmax(sql_query), "SELECT `id`, `name` FROM %s WHERE steamid = '%s'", sql_table, steamid);
-    #elseif USE_IDENTITY == 3
-    new ip[IP_SIZE];
-    get_user_ip(id, ip, charsmax(ip), true /* without port */);
-
-    new steamid[STEAMID_SIZE];
-    get_user_authid(id, steamid, charsmax(steamid));
-
+    #if defined USE_IP_IDENTITY && defined USE_STEAMID_IDENTITY && USE_DUAL_IDENTITY
     format(sql_query, charsmax(sql_query), "SELECT `id`, `name` FROM %s WHERE ip = '%s' AND steamid = '%s'", sql_table, steamid, ip);
-    #elseif USE_IDENTITY == 4
-    new ip[IP_SIZE];
-    get_user_ip(id, ip, charsmax(ip), true /* without port */);
-
-    new steamid[STEAMID_SIZE];
-    get_user_authid(id, steamid, charsmax(steamid));
-
+    #elseif defined USE_IP_IDENTITY && defined USE_STEAMID_IDENTITY
     format(sql_query, charsmax(sql_query), "SELECT `id`, `name` FROM %s WHERE ip = '%s' OR steamid = '%s'", sql_table, steamid, ip);
+    #elseif defined USE_STEAMID_IDENTITY
+    format(sql_query, charsmax(sql_query), "SELECT `id`, `name` FROM %s WHERE steamid = '%s'", sql_table, steamid);
+    #else
+    format(sql_query, charsmax(sql_query), "SELECT `id`, `name` FROM %s WHERE ip = '%s'", sql_table, ip);
     #endif
 
     index[0] = id;
