@@ -12,7 +12,7 @@
 
 #define PLUGIN "Gates SQL"
 #define AUTHOR "Clay Whitelytning"
-#define VERSION "1.0.8"
+#define VERSION "1.0.9"
 
 /**
  * Allows you to use the connection settings from sql.cfg.
@@ -47,6 +47,12 @@
  * (USE_IP_IDENTITY and USE_STEAMID_IDENTITY must be defined).
  */
 //#define USE_DUAL_IDENTITY
+
+/**
+ * During testing of the plugin on a real server, 
+ * players with empty Steam IDs appeared in the table.
+ */
+//#define KICK_PLAYER_IF_STEAMID_IS_EMPTY
 
 /**
  * Reads and changes the player's nickname.
@@ -183,9 +189,17 @@ public client_putinserver(id) @read_player_data(id);
     #if defined USE_STEAMID_IDENTITY
     new steamid[STEAMID_SIZE];
     get_user_authid(id, steamid, charsmax(steamid));
+
+    #if defined KICK_PLAYER_IF_STEAMID_IS_EMPTY
+    if (equal(steamid, "")) {
+      server_cmd("kick #%d %s", get_user_userid(id), "Steam ID is empty");
+      return;
+    }
     #endif
 
-    #if defined USE_IP_IDENTITY && defined USE_STEAMID_IDENTITY && USE_DUAL_IDENTITY
+    #endif
+
+    #if defined USE_IP_IDENTITY && defined USE_STEAMID_IDENTITY && defined USE_DUAL_IDENTITY
     format(sql_query, charsmax(sql_query), "SELECT `id`, `name` FROM %s WHERE ip = '%s' AND steamid = '%s'", sql_table, steamid, ip);
     #elseif defined USE_IP_IDENTITY && defined USE_STEAMID_IDENTITY
     format(sql_query, charsmax(sql_query), "SELECT `id`, `name` FROM %s WHERE ip = '%s' OR steamid = '%s'", sql_table, steamid, ip);
@@ -206,8 +220,17 @@ public client_putinserver(id) @read_player_data(id);
 @update_player_data(const id, name[])
 {
   if (indexes[id]) {
-    new sql_query[DATA_SIZE], steamid[STEAMID_SIZE], ip[IP_SIZE], sql_table[32];
+    new steamid[STEAMID_SIZE];
     get_user_authid(id, steamid, charsmax(steamid));
+
+    #if defined KICK_PLAYER_IF_STEAMID_IS_EMPTY
+    if (equal(steamid, "")) {
+      server_cmd("kick #%d %s", get_user_userid(id), "Steam ID is empty");
+      return;
+    }
+    #endif
+
+    new sql_query[DATA_SIZE], ip[IP_SIZE], sql_table[32];
     get_user_ip(id, ip, charsmax(ip), true /* without port */);
     mysql_escape_string(name, NAME_SIZE - 1);
 
@@ -227,8 +250,17 @@ public client_putinserver(id) @read_player_data(id);
 @insert_player_data(const id, name[])
 {
   if (is_player(id)) {
-    new steamid[STEAMID_SIZE], ip[IP_SIZE], sql_table[32], sql_query[DATA_SIZE];
+    new steamid[STEAMID_SIZE];
     get_user_authid(id, steamid, charsmax(steamid));
+
+    #if defined KICK_PLAYER_IF_STEAMID_IS_EMPTY
+    if (equal(steamid, "")) {
+      server_cmd("kick #%d %s", get_user_userid(id), "Steam ID is empty");
+      return;
+    }
+    #endif
+
+    new ip[IP_SIZE], sql_table[32], sql_query[DATA_SIZE];
     get_user_ip(id, ip, charsmax(ip), true /* without port */);
     mysql_escape_string(name, NAME_SIZE - 1);
 
