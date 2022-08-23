@@ -104,10 +104,10 @@ new message_say_text;
 #endif
 
 new cvar_sql_host, 
-	cvar_sql_user, 
-	cvar_sql_pass, 
-	cvar_sql_db, 
-	cvar_sql_table,
+  cvar_sql_user, 
+  cvar_sql_pass, 
+  cvar_sql_db, 
+  cvar_sql_table,
 
   Handle:sql_tuple,
   Handle:sql_connection,
@@ -380,11 +380,11 @@ public plugin_end()
 /*********    mysql escape functions     ************/
 mysql_escape_string(dest[],len)
 {
-	replace_all(dest,len,"\\","\\\\");
-	replace_all(dest,len,"\0","\\0");
-	replace_all(dest,len,"\n","\\n");
-	replace_all(dest,len,"\r","\\r");
-	replace_all(dest,len,"\x1a","\Z");
-	replace_all(dest,len,"'","''");
-	replace_all(dest,len,"^"","^"^"");
+  replace_all(dest,len,"\\","\\\\");
+  replace_all(dest,len,"\0","\\0");
+  replace_all(dest,len,"\n","\\n");
+  replace_all(dest,len,"\r","\\r");
+  replace_all(dest,len,"\x1a","\Z");
+  replace_all(dest,len,"'","''");
+  replace_all(dest,len,"^"","^"^"");
 }
