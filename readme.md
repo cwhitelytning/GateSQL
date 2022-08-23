@@ -6,22 +6,14 @@ The plugin creates a table in the MySQL database to store player names linked to
 
 Thanks to the flexible settings that are applied during the build of the plugin, it can be built for any of your needs:
 
-* Load your own configuration file or from sql.cfg to connect to MySQL.
-* Upload your own cvars or existing cvars from sql.cfg to connect to MySQL.
-
-* Record or update the player's name as soon as he enters the server.
-
+* Uploading your own configuration file or from sql.cfg to connect to MySQL.
+* Loading your own kvars or existing ones from gate sql.cfg to connect to MySQL.
+* Recording or updating the player's name as soon as he logs in to the server.
 * Record or update the player's name as soon as he changes the name.
-
-* Read and change the player's name if the name is different from the last entry.
-
-* Deleting a player from the server if the name differs from the previous entry.
-
+* Read and change the player's name if the name differs from the last entry.
 * Blocking the message "player changed name to".
-
-* Blocking the change of nickname during the game.
-
-* Check by SteamID or by IP.
+* Blocking the nickname change during the game.
+* Checking by: SteamID, IP, SteamID and IP, SteamID or IP.
 
 ## Requirements
 
