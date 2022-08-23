@@ -2,7 +2,7 @@
  * Binds the name to the IP address of the player and returns the saved nickname if the player has changed it.
  * Plugin records the name, IP address and Steam ID that can be used to fully identify the player.
  *
- * It does not provide for the possibility of changing the name and is an extension for the website.
+ * Able to integrate with CSstatsX SQL.
  * Does not work with bots and HLTV.
  */
 
@@ -12,25 +12,40 @@
 
 #define PLUGIN "Gates SQL"
 #define AUTHOR "Clay Whitelytning"
-#define VERSION "1.1.0"
+#define VERSION "1.1.1"
+
+/*****************************************/
+/**            CONFIGURATION            **/
+/*****************************************/
 
 /**
  * Allows you to use the connection settings from sql.cfg.
  * This is necessary first of all so as not to produce settings for the sake of connection that are already specified somewhere.
  * If not defined, custom cvars and a configuration file will be used.
  * 
- * Note that logins_sql_table must be specified 
+ * Note that gates_sql_table must be specified 
  * for example in sql.cfg in order to use a different table name.
  */
 #define USING_SQL
 
 /**
+ * Player identification with CSstatsX SQL statistics.
+ * Updating and inserting a record will be disabled.
+ * Definition of USING_SQL should be commented out.
+ */
+//#define USING_CSSTATS_SQL
+
+/**
  * If the USING_SQL define is used, then you do not need to use your own configuration.
  * However, if sql.cfg is not loaded by default, you can use it.
  * 
- * If the SQL_CFG definition is not used, uncomment to load your own configuration file.
+ * If the USING_SQL definition is not used, uncomment to load your own configuration file.
  */
 //#define USE_FORCE_LOAD_CONFIG
+
+/*****************************************/
+/**            BUILD OPTIONS            **/
+/*****************************************/
 
 /**
  * Identifies the player by IP address.
@@ -77,6 +92,10 @@
  * (hook to catch the name change must be defined).
  */
 #define USE_BLOCK_CHANGE_NAME_IN_GAME
+
+/*****************************************/
+/**            OTHER SETTINGS            */
+/*****************************************/
 
 /**
  * Other settings that are better not to touch 
@@ -141,6 +160,11 @@ public plugin_init()
     cvar_sql_db	=	register_cvar("amx_sql_db", "amxx", FCVAR_PROTECTED);
     cvar_sql_user	=	register_cvar("amx_sql_user", "root", FCVAR_PROTECTED);
     cvar_sql_pass	=	register_cvar("amx_sql_pass", "root", FCVAR_PROTECTED);
+  #elseif defined USING_CSSTATS_SQL
+    cvar_sql_host	=	register_cvar("csstats_sql_host", "127.0.0.1", FCVAR_PROTECTED);
+    cvar_sql_db	=	register_cvar("csstats_sql_db", "amxx", FCVAR_PROTECTED);
+    cvar_sql_user	=	register_cvar("csstats_sql_user", "root", FCVAR_PROTECTED);
+    cvar_sql_pass	=	register_cvar("csstats_sql_pass", "", FCVAR_PROTECTED);  
   #else
     cvar_sql_host	=	register_cvar("gate_sql_host", "127.0.0.1", FCVAR_PROTECTED);
     cvar_sql_db	=	register_cvar("gate_sql_db", "amxx", FCVAR_PROTECTED);
@@ -148,13 +172,19 @@ public plugin_init()
     cvar_sql_pass	=	register_cvar("gate_sql_pass", "", FCVAR_PROTECTED);
   #endif
 
+  #if defined USING_CSSTATS_SQL
+  cvar_sql_table = register_cvar("csstats_sql_table", "csstats", FCVAR_PROTECTED);
+  #else
   cvar_sql_table = register_cvar("gate_sql_table", "gates", FCVAR_PROTECTED);
+  #endif
 
   #if defined USE_FORCE_LOAD_CONFIG
     new file_path[128];
     get_localinfo("amxx_configsdir", file_path, charsmax(file_path));    
     #if defined USING_SQL
       formatex(file_path, charsmax(file_path), "%s/%s", file_path, "sql.cfg");
+    #elseif defined USING_CSSTATS_SQL
+      formatex(file_path, charsmax(file_path), "%s/plugins/%s", file_path, "plugin-csstatsx_sql.cfg");
     #else
       formatex(file_path, charsmax(file_path), "%s/%s", file_path, "gatesql.cfg");
     #endif
@@ -172,7 +202,7 @@ public CBasePlayer_SetClientUserInfoName(id, szInfoBuffer[], szNewName[])
   #if defined USE_BLOCK_CHANGE_NAME_IN_GAME
     SetHookChainReturn(ATYPE_BOOL, unlocks[id]);
     unlocks[id] = false;
-  #else
+  #elseif !defined USING_CSSTATS_SQL
     @update_player_data(id, szNewName);
   #endif
 }
@@ -180,12 +210,11 @@ public CBasePlayer_SetClientUserInfoName(id, szInfoBuffer[], szNewName[])
 
 public plugin_cfg() @connect_db();
 public client_disconnected(id) { indexes[id] = 0; }
-public client_putinserver(id) @read_player_data(id);
 
 /**
  * Reads the player's nickname and changes it if it is different.
  */
-@read_player_data(const id)
+public client_putinserver(id)
 {
   if (is_player(id)) {
     new sql_query[DATA_SIZE], sql_table[SQL_DATA_SIZE], index[2];
@@ -222,8 +251,9 @@ public client_putinserver(id) @read_player_data(id);
   }
 }
 
+#if !defined USING_CSSTATS_SQL
 /**
- * Writes the player's nickname to the table.
+ * Updates the player's nickname to the table.
  */
 @update_player_data(const id, name[])
 {
@@ -281,33 +311,6 @@ public client_putinserver(id) @read_player_data(id);
 }
 
 /**
- * Connects to the database.
- */
-@connect_db()
-{
-  new sql_host[SQL_DATA_SIZE], sql_user[SQL_DATA_SIZE], sql_pass[SQL_DATA_SIZE], sql_db[SQL_DATA_SIZE];
-  get_pcvar_string(cvar_sql_host, sql_host, charsmax(sql_host));
-  get_pcvar_string(cvar_sql_user, sql_user, charsmax(sql_user));
-  get_pcvar_string(cvar_sql_pass, sql_pass, charsmax(sql_pass));
-  get_pcvar_string(cvar_sql_db, sql_db, charsmax(sql_db));
-
-  new error, data[DATA_SIZE];
-  sql_tuple = SQL_MakeDbTuple(sql_host, sql_user, sql_pass, sql_db);
-  SQL_SetCharset(sql_tuple, "utf8");
-
-  sql_connection = SQL_Connect(sql_tuple, error, data, charsmax(data));
-
-  if(sql_connection == Empty_Handle) {
-    set_fail_state("[%s] Error connecting to database (mysql)^nError: %s", PLUGIN, data);
-  }
-
-  SQL_SetCharset(sql_connection, "utf8");
-  SQL_FreeHandle(sql_connection);
-
-  @check_table();
-}
-
-/**
  * Creates a table if it does not exist.
  */
 @check_table()
@@ -338,6 +341,47 @@ public client_putinserver(id) @read_player_data(id);
   SQL_FreeHandle(query_handle);
 }
 
+mysql_escape_string(dest[],len)
+{
+  replace_all(dest,len,"\\","\\\\");
+  replace_all(dest,len,"\0","\\0");
+  replace_all(dest,len,"\n","\\n");
+  replace_all(dest,len,"\r","\\r");
+  replace_all(dest,len,"\x1a","\Z");
+  replace_all(dest,len,"'","''");
+  replace_all(dest,len,"^"","^"^"");
+}
+#endif
+
+/**
+ * Connects to the database.
+ */
+@connect_db()
+{
+  new sql_host[SQL_DATA_SIZE], sql_user[SQL_DATA_SIZE], sql_pass[SQL_DATA_SIZE], sql_db[SQL_DATA_SIZE];
+  get_pcvar_string(cvar_sql_host, sql_host, charsmax(sql_host));
+  get_pcvar_string(cvar_sql_user, sql_user, charsmax(sql_user));
+  get_pcvar_string(cvar_sql_pass, sql_pass, charsmax(sql_pass));
+  get_pcvar_string(cvar_sql_db, sql_db, charsmax(sql_db));
+
+  new error, data[DATA_SIZE];
+  sql_tuple = SQL_MakeDbTuple(sql_host, sql_user, sql_pass, sql_db);
+  SQL_SetCharset(sql_tuple, "utf8");
+
+  sql_connection = SQL_Connect(sql_tuple, error, data, charsmax(data));
+
+  if(sql_connection == Empty_Handle) {
+    set_fail_state("[%s] Error connecting to database (mysql)^nError: %s", PLUGIN, data);
+  }
+
+  SQL_SetCharset(sql_connection, "utf8");
+  SQL_FreeHandle(sql_connection);
+
+  #if !defined USING_CSSTATS_SQL
+  @check_table();
+  #endif
+}
+
 /**
  * Handler for reading and changing the nickname.
  */
@@ -353,21 +397,24 @@ public client_putinserver(id) @read_player_data(id);
       if (SQL_NumResults(query_handle)) {
         indexes[id] = SQL_ReadResult(query_handle, 0); //!< get index id
 
-        #if defined USE_CHANGE_NAME_ON_PUT_IN_SERVER
-          new oldname[NAME_SIZE];
-          SQL_ReadResult(query_handle, 1, oldname, charsmax(oldname));
-        
-          if (!equal(oldname, curname)) {
+        new oldname[NAME_SIZE];
+        SQL_ReadResult(query_handle, 1, oldname, charsmax(oldname));
+      
+        if (!equal(oldname, curname)) {
+          #if defined USE_CHANGE_NAME_ON_PUT_IN_SERVER
             #if defined USE_BLOCK_CHANGE_NAME_IN_GAME
               unlocks[id] = true;
             #endif
             set_user_info(id, "name", oldname);
-          }
-        #else
-          @update_player_data(id, curname);
-        #endif
+          #elseif !defined USING_CSSTATS_SQL
+            @update_player_data(id, curname);
+          #endif
+        }
+
+      #if !defined USING_CSSTATS_SQL
       } else {
         @insert_player_data(id, curname);
+      #endif
       }
     }
   } else {
@@ -376,18 +423,6 @@ public client_putinserver(id) @read_player_data(id);
   }
 
   SQL_FreeHandle(query_handle);
-}
-
-/*********    mysql escape functions     ************/
-mysql_escape_string(dest[],len)
-{
-  replace_all(dest,len,"\\","\\\\");
-  replace_all(dest,len,"\0","\\0");
-  replace_all(dest,len,"\n","\\n");
-  replace_all(dest,len,"\r","\\r");
-  replace_all(dest,len,"\x1a","\Z");
-  replace_all(dest,len,"'","''");
-  replace_all(dest,len,"^"","^"^"");
 }
 
 /*********            natives            ************/
