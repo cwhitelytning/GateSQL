@@ -45,6 +45,12 @@
 /*****************************************/
 
 /**
+ * When creating a table in MySQL 5.5, an error occurs in which it is impossible to create a table with two time columns. 
+ * If you have version 5.6.5 and higher, you do not need to use this definition, this restriction has been removed.
+ */
+// #define MYSQL_ONE_TIMESTAMP_COLUMN
+
+/**
  * Identifies the player by IP address.
  */
 #define USE_IP_IDENTITY
@@ -52,13 +58,13 @@
 /**
  * Identifies the player by Steam ID.
  */
-//#define USE_STEAMID_IDENTITY
+// #define USE_STEAMID_IDENTITY
 
 /**
  * Performs dual verification by address and identifier.
  * (USE_IP_IDENTITY and USE_STEAMID_IDENTITY must be defined).
  */
-//#define USE_DUAL_IDENTITY
+// #define USE_DUAL_IDENTITY
 
 /**
  * During testing of the plugin on a real server, 
@@ -349,6 +355,7 @@ public client_putinserver(id)
   new sql_table[SQL_TABLE_SIZE], sql_query[SQL_QUERY_SIZE];
   get_pcvar_string(cvar_sql_table, sql_table, charsmax(sql_table));
 
+  #if defined MYSQL_ONE_TIMESTAMP_COLUMN
   format(sql_query, charsmax(sql_query), "CREATE TABLE IF NOT EXISTS `%s` \
   (`id` INT NOT NULL AUTO_INCREMENT PRIMARY KEY, \
    `ip` varchar(%d) NOT NULL, \
@@ -356,7 +363,17 @@ public client_putinserver(id)
    `name` varchar(%d) NOT NULL, \
    `banned` boolean NOT NULL DEFAULT FALSE, \
    `login_time` timestamp NOT NULL DEFAULT CURRENT_TIMESTAMP, \
-   `logout_time` timestamp NOT NULL DEFAULT '0000-00-00 00:00:00') DEFAULT CHARSET=utf8", sql_table, IP_SIZE, STEAMID_SIZE, NAME_SIZE);  
+   `logout_time` timestamp NOT NULL DEFAULT '0000-00-00 00:00:00') DEFAULT CHARSET=utf8", sql_table, IP_SIZE, STEAMID_SIZE, NAME_SIZE);
+  #else
+  format(sql_query, charsmax(sql_query), "CREATE TABLE IF NOT EXISTS `%s` \
+  (`id` INT NOT NULL AUTO_INCREMENT PRIMARY KEY, \
+   `ip` varchar(%d) NOT NULL, \
+   `steamid` varchar(%d) NOT NULL, \
+   `name` varchar(%d) NOT NULL, \
+   `banned` boolean NOT NULL DEFAULT FALSE, \
+   `login_time` timestamp NOT NULL DEFAULT CURRENT_TIMESTAMP, \
+   `logout_time` timestamp NOT NULL DEFAULT CURRENT_TIMESTAMP) DEFAULT CHARSET=utf8", sql_table, IP_SIZE, STEAMID_SIZE, NAME_SIZE);
+  #endif  
 
   SQL_ThreadQuery(sql_tuple, "@query_handler", .query = sql_query);
 }
